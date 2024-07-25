@@ -1,0 +1,148 @@
+{
+  "StartAt": "WaitSSMAssociate",
+  "States": {
+    "WaitSSMAssociate": {
+      "Type": "Wait",
+      "Seconds": 300,
+      "Next": "DescribeInstanceInformation"
+    },
+    "DescribeInstanceInformation": {
+      "Type": "Task",
+      "Parameters": {
+        "Filters": [
+          {
+            "Key": "InstanceIds",
+            "Values.$": "States.Array($)"
+          }
+        ]
+      },
+      "Resource": "arn:aws:states:::aws-sdk:ssm:describeInstanceInformation",
+      "Next": "IsOnlineSSMAgent",
+      "InputPath": "$$.Execution.Input.detail.instance-id"
+    },
+    "IsOnlineSSMAgent": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Not": {
+            "Variable": "$.InstanceInformationList[0].InstanceId",
+            "IsPresent": true
+          },
+          "Next": "StartSAW"
+        }
+      ],
+      "Default": "SSMAgentOnline"
+    },
+    "StartSAW": {
+      "Type": "Task",
+      "Parameters": {
+        "DocumentName": "AWSSupport-TroubleshootManagedInstance",
+        "Parameters": {
+          "InstanceId.$": "States.Array($)"
+        }
+      },
+      "Resource": "arn:aws:states:::aws-sdk:ssm:startAutomationExecution",
+      "InputPath": "$$.Execution.Input.detail.instance-id",
+      "Next": "WaitSAWResult"
+    },
+    "WaitSAWResult": {
+      "Type": "Wait",
+      "Seconds": 1,
+      "Next": "DescribeAutomationExecutions"
+    },
+    "DescribeAutomationExecutions": {
+      "Type": "Task",
+      "Parameters": {
+        "Filters": [
+          {
+            "Key": "ExecutionId",
+            "Values.$": "States.Array($.AutomationExecutionId)"
+          }
+        ]
+      },
+      "Resource": "arn:aws:states:::aws-sdk:ssm:describeAutomationExecutions",
+      "Next": "IsSAWFinish",
+      "ResultPath": "$.result",
+      "OutputPath": "$.result"
+    },
+    "IsSAWFinish": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Not": {
+                "Variable": "$.AutomationExecutionMetadataList[0].AutomationExecutionStatus",
+                "StringMatches": "Success"
+              }
+            },
+            {
+              "Not": {
+                "Variable": "$.AutomationExecutionMetadataList[0].AutomationExecutionStatus",
+                "StringMatches": "TimedOut"
+              }
+            },
+            {
+              "Not": {
+                "Variable": "$.AutomationExecutionMetadataList[0].AutomationExecutionStatus",
+                "StringMatches": "Cancelled"
+              }
+            },
+            {
+              "Not": {
+                "Variable": "$.AutomationExecutionMetadataList[0].AutomationExecutionStatus",
+                "StringMatches": "Failed"
+              }
+            },
+            {
+              "Not": {
+                "Variable": "$.AutomationExecutionMetadataList[0].AutomationExecutionStatus",
+                "StringMatches": "Exited"
+              }
+            }
+          ],
+          "Next": "SAWNotFinish"
+        }
+      ],
+      "Default": "SAWFinish"
+    },
+    "SAWNotFinish": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "OutputPath": "$.AutomationExecutionMetadataList[0]",
+      "Next": "DescribeAutomationExecutions"
+    },
+    "SAWFinish": {
+      "Type": "Wait",
+      "Seconds": 5,
+      "Next": "SendNotification"
+    },
+    "SendNotification": {
+      "Type": "Task",
+      "Resource": "${LambdaFunction}",
+      "Parameters": {
+        "Payload": {
+          "ExecutionInput.$": "$$.Execution.Input",
+          "DescribeResult.$": "$"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "End": true
+    },
+    "SSMAgentOnline": {
+      "Type": "Wait",
+      "Seconds": 1,
+      "End": true
+    }
+  },
+  "TimeoutSeconds": 900
+}

@@ -1,0 +1,273 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  SecretsManagerNameForSlackWebHookUrl:
+    Description: Name for Slack workflow web hook url in Secrets Manager
+    Type: 'String'
+  TopicArn:
+    Description: SNS topic arn
+    Type: 'String'
+  TopicKmsKeyArn:
+    Description: SNS topic is encrypted with KMS
+    Type: 'String'
+
+Conditions:
+  ExistSlack: !Not 
+    - !Equals 
+      - !Ref SecretsManagerNameForSlackWebHookUrl
+      - ''
+  ExistTopic: !Not 
+    - !Equals 
+      - !Ref TopicArn
+      - ''
+  ExistTopicKms: !Not 
+    - !Equals 
+      - !Ref TopicKmsKeyArn
+      - ''
+
+# https://docs.aws.amazon.com/systems-manager/latest/userguide/ps-integration-lambda-extensions.html#ps-integration-lambda-extensions-add
+Mappings: 
+  RegionMap:
+    us-east-2:
+      "X86": "arn:aws:lambda:us-east-2:590474943231:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    us-east-1:
+      "X86": "arn:aws:lambda:us-east-1:177933569100:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    us-west-1:
+      "X86": "arn:aws:lambda:us-west-1:997803712105:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    us-west-2:
+      "X86": "arn:aws:lambda:us-west-2:345057560386:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    af-south-1:
+      "X86": "arn:aws:lambda:af-south-1:317013901791:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-east-1:
+      "X86": "arn:aws:lambda:ap-east-1:768336418462:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-south-2:
+      "X86": "arn:aws:lambda:ap-south-2:070087711984:layer:AWS-Parameters-and-Secrets-Lambda-Extension:8"
+    ap-southeast-3:
+      "X86": "arn:aws:lambda:ap-southeast-3:490737872127:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-southeast-4:
+      "X86": "arn:aws:lambda:ap-southeast-4:090732460067:layer:AWS-Parameters-and-Secrets-Lambda-Extension:1"
+    ap-south-1:
+      "X86": "arn:aws:lambda:ap-south-1:176022468876:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-northeast-3:
+      "X86": "arn:aws:lambda:ap-northeast-3:576959938190:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-northeast-2:
+      "X86": "arn:aws:lambda:ap-northeast-2:738900069198:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-southeast-1:
+      "X86": "arn:aws:lambda:ap-southeast-1:044395824272:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-southeast-2:
+      "X86": "arn:aws:lambda:ap-southeast-2:665172237481:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ap-northeast-1:
+      "X86": "arn:aws:lambda:ap-northeast-1:133490724326:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ca-central-1:
+      "X86": "arn:aws:lambda:ca-central-1:200266452380:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    ca-west-1:
+      "X86": "arn:aws:lambda:ca-west-1:243964427225:layer:AWS-Parameters-and-Secrets-Lambda-Extension:1"
+    eu-central-1:
+      "X86": "arn:aws:lambda:eu-central-1:187925254637:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    eu-west-1:
+      "X86": "arn:aws:lambda:eu-west-1:015030872274:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    eu-west-2:
+      "X86": "arn:aws:lambda:eu-west-2:133256977650:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    eu-south-1:
+      "X86": "arn:aws:lambda:eu-south-1:325218067255:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    eu-west-3:
+      "X86": "arn:aws:lambda:eu-west-3:780235371811:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    eu-south-2:
+      "X86": "arn:aws:lambda:eu-south-2:524103009944:layer:AWS-Parameters-and-Secrets-Lambda-Extension:8"
+    eu-north-1:
+      "X86": "arn:aws:lambda:eu-north-1:427196147048:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    il-central-1:
+      "X86": "arn:aws:lambda:il-central-1:148806536434:layer:AWS-Parameters-and-Secrets-Lambda-Extension:1"
+    eu-central-2:
+      "X86": "arn:aws:lambda:eu-central-2:772501565639:layer:AWS-Parameters-and-Secrets-Lambda-Extension:8"
+    me-south-1:
+      "X86": "arn:aws:lambda:me-south-1:832021897121:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    me-central-1:
+      "X86": "arn:aws:lambda:me-central-1:858974508948:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+    sa-east-1:
+      "X86": "arn:aws:lambda:sa-east-1:933737806257:layer:AWS-Parameters-and-Secrets-Lambda-Extension:11"
+
+Resources:
+  LambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/slack_notification/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Timeout: 10
+      ReservedConcurrentExecutions: 20
+      Layers:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", X86]
+      Role: !GetAtt LambdaFunctionRole.Arn
+      Environment:
+        Variables:
+          SECRET_SLACK_WEB_HOOK_URL_NAME: !Ref SecretsManagerNameForSlackWebHookUrl
+          TOPIC_ARN: !Ref TopicArn
+
+  SecretPolicy:
+    Type: AWS::IAM::Policy
+    Condition: ExistSlack
+    Properties:
+      PolicyName: GetSecret
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'secretsmanager:GetSecretValue'
+            Resource:
+              - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretsManagerNameForSlackWebHookUrl}-??????
+      Roles:
+        - !Ref LambdaFunctionRole
+
+  SNSPolicy:
+    Type: AWS::IAM::Policy
+    Condition: ExistTopic
+    Properties:
+      PolicyName: PublishSNS
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'sns:Publish'
+            Resource:
+              - !Ref TopicArn
+      Roles:
+        - !Ref LambdaFunctionRole
+
+  TopicKmsPolicy:
+    Type: AWS::IAM::Policy
+    Condition: ExistTopicKms
+    Properties:
+      PolicyName: TopicKms
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'kms:GenerateDataKey*'
+              - 'kms:Decrypt'
+            Resource:
+              - !Ref TopicKmsKeyArn
+      Roles:
+        - !Ref LambdaFunctionRole
+
+  LambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  StateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/sfn-definition.json
+      DefinitionSubstitutions:
+        LambdaFunction: !GetAtt LambdaFunction.Arn
+      Role: !GetAtt StateMachineRole.Arn
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        # https://docs.aws.amazon.com/systems-manager-automation-runbooks/latest/userguide/automation-awssupport-troubleshoot-managed-instance.html
+        - PolicyName: AWSSupport-TroubleshootManagedInstance
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ssm:DescribeAutomationExecutions'
+                  - 'ssm:DescribeAutomationStepExecutions'
+                  - 'ssm:DescribeInstanceInformation'
+                  - 'ssm:DescribeInstanceProperties'
+                  - 'ssm:StartAutomationExecution'
+                  - 'ssm:GetAutomationExecution'
+                  - 'ssm:GetDocument'
+                  - 'ssm:ListDocuments'
+                  - 'ssm:StartAutomationExecution'
+                  - 'ssm:GetServiceSetting'
+                  - 'iam:ListRoles'
+                  - 'iam:ListRolePolicies'
+                  - 'iam:GetInstanceProfile'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:DescribeNetworkAcls'
+                  - 'ec2:DescribeRouteTables'
+                  - 'ec2:DescribeSecurityGroups'
+                  - 'ec2:DescribeVpcEndpoints'
+                  - 'ec2:DescribeVpcs'
+                Resource:
+                  - '*'
+        - PolicyName: Invoke-Lambda
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt LambdaFunction.Arn
+
+  EventRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: 'EventRule'
+      EventPattern: 
+        source: 
+          - 'aws.ec2'
+        detail-type: 
+          - 'EC2 Instance State-change Notification'
+        detail: 
+          state: 
+            - 'running'
+      State: 'ENABLED'
+      Targets: 
+        - 
+          Arn: !Ref StateMachine
+          Id: 'SFn'
+          RoleArn: !GetAtt 
+            - EventBridgeIAMrole
+            - Arn
+  EventBridgeIAMrole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: !Sub events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: StartExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource:
+                  - !Ref StateMachine
